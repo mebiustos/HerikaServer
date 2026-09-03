@@ -1244,7 +1244,7 @@ function unmoodSentence($sentence) {
     return $responseTextUnmooded;
 }
 
-function returnLines($lines,$writeOutput=true)
+function returnLines($lines,$writeOutput=true,$beforeSpeechLine=null)
 {
     global $db, $startTime, $forceMood, $staticMood, $talkedSoFar, $FORCED_STOP, $TRANSFORMER_FUNCTION,$receivedData;
 
@@ -1287,6 +1287,12 @@ function returnLines($lines,$writeOutput=true)
         
         if (is_array($sentence))
             continue;
+
+        // Let the caller stop a superseded response after the current TTS line has finished,
+        // but before any work begins for the next line.
+        if (is_callable($beforeSpeechLine)) {
+            $beforeSpeechLine();
+        }
         
         // Remove actions
         if (isset($GLOBALS["startTimeAfterPlayerTTTS"]))
@@ -1454,6 +1460,7 @@ function returnLines($lines,$writeOutput=true)
         $hasNarrationBlocks = $splitNarration && $narrationParts && !empty($narrationParts['narrations']);
         $hasTextOnlyNarration = $textOnlyNarration && $narrationParts && !empty($narrationParts['narrations']);
         $shouldEmitNpcLine = false;
+        $inlineNarrationTtsCompleted = false;
 
         if ($responseTextUnmooded || $hasNarrationBlocks || $hasTextOnlyNarration) {
             $shouldEmitNpcLine = true;
@@ -1494,6 +1501,10 @@ function returnLines($lines,$writeOutput=true)
                         continue; // Skip empty narrations
                     }
 
+                    if ($inlineNarrationTtsCompleted && is_callable($beforeSpeechLine)) {
+                        $beforeSpeechLine();
+                    }
+
                     Logger::info("[INLINE_NARRATION] Processing narration: " . $narrationText);
 
                     // Switch to Narrator voice
@@ -1514,6 +1525,7 @@ function returnLines($lines,$writeOutput=true)
 
                     // Generate TTS for narration using the configured TTS function
                     $narratorTtsOutput = callConfiguredTts($narrationForSpeech, "default", $narrationTtsCacheText);
+                    $inlineNarrationTtsCompleted = true;
 
                     // Track narrator TTS output
                     if ($narratorTtsOutput) {
@@ -1567,6 +1579,10 @@ function returnLines($lines,$writeOutput=true)
                 $responseForSpeech = chimApplyTtsPronunciationDictionary((string)$responseForTTS);
                 $npcPronunciationApplied = $responseForSpeech !== $responseForTTS;
                 $ttsCacheText = $npcPronunciationApplied ? $responseForSpeech : $responseForSubtitles;
+
+                if ($inlineNarrationTtsCompleted && is_callable($beforeSpeechLine)) {
+                    $beforeSpeechLine();
+                }
 
                 // Set TTS processing status
                 pipeline_status_set('tts', true);

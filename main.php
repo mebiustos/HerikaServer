@@ -1220,19 +1220,16 @@ if (in_array($gameRequest[0],["rechat","narration"]) ) {
         // Check if this conflicts with smart rechat
         // Is this doing something?
         $semaphore_timeout = $GLOBALS["SEMAPHORES_TIMEOUT"] ?? 300;
-        if (!SemaphoreWait("MAIN", $semaphore_timeout, 1007, function() use ($db, $gameRequest) {
-            //$user_input_after=$db->fetchAll("select count(*) as N from eventlog where type='user_input' and ts>$gameRequest[1]"); // 72 ms 
-            $user_input_after=$db->fetchAll("SELECT rowid as N FROM eventlog WHERE type='user_input' AND ts>{$gameRequest[1]} ORDER BY rowid DESC LIMIT 1 "); // faster, 1.5 ms
-            if (isset($user_input_after[0])) {
-                if (isset($user_input_after[0]["N"]))
-                    if (intval($user_input_after[0]["N"])>0) {
-                        Logger::warn("[main] rechat event - generation stopped because user_input. " .__FILE__ . " " . __LINE__); // debug
-                        terminate();
-                    }
-            }
-            return true;
-        })) {
+        if (!SemaphoreWait("MAIN", $semaphore_timeout, 1007, null)) {
             Logger::warn("[main] rechat event - semaphore wait failed in " .__FILE__ . " " . __LINE__);
+            terminate();
+        }
+        $supersedingInput = chimFindSupersedingUserInput($db, $gameRequest[1] ?? '');
+        if ($supersedingInput !== null) {
+            Logger::warn(
+                "[USER_INPUT_INTERRUPT] Rechat stopped after reacquiring MAIN lock"
+                . " (user_input_rowid={$supersedingInput['rowid']})"
+            );
             terminate();
         }
     }
